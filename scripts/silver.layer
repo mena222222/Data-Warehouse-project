@@ -1,36 +1,55 @@
-truncate table silver.crm_cust_info
-insert into silver.crm_cust_info(
-cst_id,
-cst_key,
-cst_firstname,
-cst_lastname,
-cst_marital_status,
-cst_gndr,
-cst_create_date
+
+TRUNCATE TABLE silver.crm_cust_info;
+
+INSERT INTO silver.crm_cust_info
+(
+    cst_id,
+    cst_key,
+    cst_firstname,
+    cst_lastname,
+    cst_marital_status,
+    cst_gndr,
+    cst_create_date
 )
-select 
-cst_id,
-cst_key,
-trim(cst_firstname) as cst_firstname,
-trim(cst_lastname) as cst_lastname,
-case 
-when upper(trim(cst_marital_status)) = 'S' then 'Single'
-when upper(trim(cst_marital_status)) = 'M' then 'Married'
-else 'N/A'
-end cst_marital_status,
-case 
-when upper(trim(cst_gndr)) = 'M' then 'Male'
-when upper(trim(cst_gndr)) = 'F' then 'Female'
-else 'N/A'
-end cst_gndr,
-cst_create_date
-from (
-select 
-*,
-row_number() over (partition by cst_id order by cst_create_date desc) flag_last
-from bronze.crm_cust_info
-where cst_id is not null)t1
-where flag_last = 1 or len(cst_key) <> 10
+SELECT
+    cst_id,
+    cst_key,
+
+    -- Clean Customer Names
+    TRIM(cst_firstname) AS cst_firstname,
+    TRIM(cst_lastname)  AS cst_lastname,
+
+    -- Normalize Marital Status
+    CASE
+        WHEN UPPER(TRIM(cst_marital_status)) = 'S' THEN 'Single'
+        WHEN UPPER(TRIM(cst_marital_status)) = 'M' THEN 'Married'
+        ELSE 'N/A'
+    END AS cst_marital_status,
+
+    -- Normalize Gender
+    CASE
+        WHEN UPPER(TRIM(cst_gndr)) = 'M' THEN 'Male'
+        WHEN UPPER(TRIM(cst_gndr)) = 'F' THEN 'Female'
+        ELSE 'N/A'
+    END AS cst_gndr,
+
+    cst_create_date
+
+FROM
+(
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY cst_id
+            ORDER BY cst_create_date DESC
+        ) AS flag_last
+    FROM bronze.crm_cust_info
+    WHERE cst_id IS NOT NULL
+) AS t1
+
+WHERE flag_last = 1
+   OR LEN(cst_key) <> 10;
+
 -----------------------------------------------------------------------------
 TRUNCATE TABLE silver.crm_prd_info;
 
@@ -88,3 +107,70 @@ SELECT
     ) - 1 AS prd_end_dt
 
 FROM bronze.crm_prd_info;
+-------------------------------------------------------------------------
+
+TRUNCATE TABLE silver.crm_sales_details;
+
+INSERT INTO silver.crm_sales_details
+(
+    sls_ord_num,
+    sls_prd_key,
+    sls_cust_id,
+    sls_order_dt,
+    sls_ship_dt,
+    sls_due_dt,
+    sls_sales,
+    sls_quantity,
+    sls_price
+)
+SELECT
+    sls_ord_num,
+    sls_prd_key,
+    sls_cust_id,
+
+    -- Convert Order Date
+    CASE
+        WHEN LEN(sls_order_dt) <> 8
+          OR sls_order_dt = 0
+            THEN NULL
+        ELSE CAST(CAST(sls_order_dt AS NVARCHAR) AS DATE)
+    END AS sls_order_dt,
+
+    -- Convert Shipping Date
+    CASE
+        WHEN LEN(sls_ship_dt) <> 8
+          OR sls_ship_dt = 0
+            THEN NULL
+        ELSE CAST(CAST(sls_ship_dt AS NVARCHAR) AS DATE)
+    END AS sls_ship_dt,
+
+    -- Convert Due Date
+    CASE
+        WHEN LEN(sls_due_dt) <> 8
+          OR sls_due_dt = 0
+            THEN NULL
+        ELSE CAST(CAST(sls_due_dt AS NVARCHAR) AS DATE)
+    END AS sls_due_dt,
+
+    -- Validate Sales Amount
+    CASE
+        WHEN sls_sales <= 0
+          OR sls_sales IS NULL
+          OR sls_sales <> sls_quantity * ABS(sls_price)
+            THEN sls_quantity * ABS(sls_price)
+        ELSE sls_sales
+    END AS sls_sales,
+
+    sls_quantity,
+
+    -- Validate Product Price
+    CASE
+        WHEN sls_price <= 0
+          OR sls_price IS NULL
+          OR sls_price <> sls_sales / sls_quantity
+            THEN sls_sales / NULLIF(sls_quantity, 0)
+        ELSE sls_price
+    END AS sls_price
+
+FROM bronze.crm_sales_details;
+
