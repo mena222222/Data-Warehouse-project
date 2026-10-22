@@ -1,0 +1,71 @@
+
+/*
+===============================================================================
+View: gold.dim_products
+===============================================================================
+Description:
+    This view creates the Product Dimension in the Gold Layer of the
+    Data Warehouse by combining product information from the CRM system
+    with product category details from the ERP system.
+
+Key Transformations:
+    - Generates a unique product_key using ROW_NUMBER().
+    - Retrieves product details, including name, number, cost, and product line.
+    - Integrates category, subcategory, and maintenance information using LEFT JOIN.
+    - Filters out discontinued products by selecting records where
+      prd_end_dt IS NULL.
+
+Purpose:
+    Provides a unified product dimension for analytical queries, reporting,
+    and data modeling using a Star Schema.
+
+===============================================================================
+*/
+
+/*
+===============================================================================
+View: gold.dim_products
+===============================================================================
+Purpose:
+    Creates a dimension view containing product information for analytical
+    and reporting purposes.
+
+Source Tables:
+    - silver.crm_prd_info
+    - silver.erp_px_cat_g1v2
+
+Transformations:
+    - Generates a unique product_key using ROW_NUMBER().
+    - Renames columns to provide clear and descriptive names.
+    - Combines product information with category details using LEFT JOIN.
+    - Includes only current products where prd_end_dt IS NULL.
+
+Usage:
+    This view can be used in the Gold Layer for reporting, data analysis,
+    and building a Star Schema.
+
+===============================================================================
+*/
+
+IF OBJECT_ID('gold.dim_products', 'V') IS NOT NULL
+    DROP VIEW gold.dim_products;
+GO
+
+CREATE VIEW gold.dim_products AS
+SELECT
+    ROW_NUMBER() OVER (ORDER BY p.prd_id) AS product_key,
+    p.prd_id AS product_id,
+    p.prd_key AS product_number,
+    p.prd_nm AS product_name,
+    p.cat_id AS category_id,
+    c.cat AS category,
+    c.subcat AS subcategory,
+    c.maintenance AS maintenance,
+    p.prd_cost AS cost,
+    p.prd_line AS product_line,
+    p.prd_start_dt AS start_date
+FROM silver.crm_prd_info p
+LEFT JOIN silver.erp_px_cat_g1v2 c
+    ON p.cat_id = c.id
+WHERE p.prd_end_dt IS NULL;
+GO
