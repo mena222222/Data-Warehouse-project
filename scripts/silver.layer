@@ -173,4 +173,39 @@ SELECT
     END AS sls_price
 
 FROM bronze.crm_sales_details;
+---------------------------------------------------------------------------------
 
+TRUNCATE TABLE silver.erp_cust_az12;
+
+INSERT INTO silver.erp_cust_az12
+(
+    cid,
+    bdate,
+    gen
+)
+SELECT
+    -- Clean Customer ID
+    CASE
+        WHEN LEN(cid) > 10
+            THEN SUBSTRING(cid, 4, LEN(cid))
+        ELSE cid
+    END AS cid,
+
+    -- Validate Birth Date
+    CASE
+        WHEN bdate > GETDATE()
+          OR bdate < '1926-01-01'
+            THEN NULL
+        ELSE bdate
+    END AS bdate,
+
+    -- Normalize Gender
+    CASE
+        WHEN UPPER(TRIM(gen)) IN ('M', 'MALE')
+            THEN 'Male'
+        WHEN UPPER(TRIM(gen)) IN ('F', 'FEMALE')
+            THEN 'Female'
+        ELSE 'N/A'
+    END AS gen
+
+FROM bronze.erp_cust_az12;
