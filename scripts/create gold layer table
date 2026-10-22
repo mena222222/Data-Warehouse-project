@@ -1,27 +1,3 @@
-
-/*
-===============================================================================
-View: gold.dim_products
-===============================================================================
-Description:
-    This view creates the Product Dimension in the Gold Layer of the
-    Data Warehouse by combining product information from the CRM system
-    with product category details from the ERP system.
-
-Key Transformations:
-    - Generates a unique product_key using ROW_NUMBER().
-    - Retrieves product details, including name, number, cost, and product line.
-    - Integrates category, subcategory, and maintenance information using LEFT JOIN.
-    - Filters out discontinued products by selecting records where
-      prd_end_dt IS NULL.
-
-Purpose:
-    Provides a unified product dimension for analytical queries, reporting,
-    and data modeling using a Star Schema.
-
-===============================================================================
-*/
-
 /*
 ===============================================================================
 View: gold.dim_products
@@ -68,4 +44,104 @@ FROM silver.crm_prd_info p
 LEFT JOIN silver.erp_px_cat_g1v2 c
     ON p.cat_id = c.id
 WHERE p.prd_end_dt IS NULL;
+GO
+------------------------------------------------------------------------------------------------------------------------------------------
+/*
+===============================================================================
+View: gold.dim_customers
+===============================================================================
+Description:
+    Creates the Customer Dimension in the Gold Layer by combining customer
+    information from the CRM and ERP systems.
+
+Source Tables:
+    - silver.crm_cust_info
+    - silver.erp_cust_az12
+    - silver.erp_loc_a101
+
+Key Transformations:
+    - Generates a unique customer_key using ROW_NUMBER().
+    - Retrieves customer names, identifiers, and marital status.
+    - Integrates customer birth dates and gender information.
+    - Retrieves customer country information.
+    - Uses CASE and COALESCE to handle missing gender values.
+
+Purpose:
+    Provides a unified customer dimension for reporting, data analysis,
+    and Star Schema modeling.
+===============================================================================
+*/
+
+IF OBJECT_ID('gold.dim_customers', 'V') IS NOT NULL
+    DROP VIEW gold.dim_customers;
+GO
+
+CREATE VIEW gold.dim_customers AS
+SELECT
+    ROW_NUMBER() OVER (ORDER BY c.cst_id) AS customer_key,
+    c.cst_id AS customer_id,
+    c.cst_key AS customer_number,
+    c.cst_firstname AS customer_firstname,
+    c.cst_lastname AS customer_lastname,
+    l.cntry AS country,
+    c.cst_marital_status AS marital_status,
+    CASE
+        WHEN c.cst_gndr <> 'N/a' THEN c.cst_gndr
+        ELSE COALESCE(a.gen, 'N/A')
+    END AS gender,
+    a.bdate AS birth_date,
+    c.cst_create_date
+FROM silver.crm_cust_info AS c
+LEFT JOIN silver.erp_cust_az12 AS a
+    ON c.cst_key = a.cid
+LEFT JOIN silver.erp_loc_a101 AS l
+    ON c.cst_key = l.cid;
+GO
+----------------------------------------------------------------------------------------------------------------------------------
+
+/*
+===============================================================================
+View: gold.fact_sales
+===============================================================================
+Description:
+    Creates the Sales Fact View in the Gold Layer by combining sales
+    transaction data with product and customer dimensions.
+
+Source Tables:
+    - silver.crm_sales_details
+    - gold.dim_products
+    - gold.dim_customers
+
+Key Transformations:
+    - Retrieves order, product, and customer identifiers.
+    - Integrates product and customer information using LEFT JOIN.
+    - Includes order, shipping, and due dates.
+    - Retrieves sales amount, quantity, and price for analysis.
+
+Purpose:
+    Provides a central fact view for analyzing sales performance and
+    supporting business intelligence reports using a Star Schema.
+===============================================================================
+*/
+
+IF OBJECT_ID('Gold.fact_sales', 'V') IS NOT NULL
+    DROP VIEW Gold.fact_sales;
+GO
+
+CREATE VIEW Gold.fact_sales AS
+SELECT
+    s.sls_ord_num AS order_number,
+    p.product_number AS product_key,
+    c.customer_id AS customer_key,
+    s.sls_order_dt AS order_date,
+    s.sls_ship_dt AS shipping_date,
+    s.sls_due_dt AS due_date,
+    s.sls_sales AS sales_amount,
+    s.sls_quantity AS quantity,
+    s.sls_price AS price
+FROM silver.crm_sales_details AS s
+LEFT JOIN gold.dim_products AS p
+    ON s.sls_prd_key = p.product_number
+LEFT JOIN gold.dim_customers AS c
+    ON s.sls_cust_id = c.customer_id;
 GO
